@@ -19,6 +19,8 @@ from os import environ
 
 from urllib2 import Request
 from urllib2 import urlopen
+from urlparse import urlsplit
+
 
 print("Loading function")
 
@@ -27,6 +29,7 @@ print("Loading function")
 #======================================================================================================================
 API_CALL_NUM_RETRIES = 3
 BLOCK_ERROR_CODES = ['400','403','404','405'] # error codes to parse logs for
+SHARE_ERROR_CODES = ['400', '404'] #Share indicator if one of these
 OUTPUT_FILE_NAME = 'aws-waf-security-automations-current-blocked-ips.json'
 
 # CloudFront Access Logs
@@ -44,7 +47,9 @@ LINE_FORMAT_ALB = {
     'delimiter': ' ',
     'timestamp': 1,
     'source_ip' : 3,
-    'code' : 8
+    'code' : 8,
+    'request': 13,
+    'user_agent': 15
 }
 
 
@@ -63,6 +68,8 @@ def get_outstanding_requesters(bucket_name, key_name):
     outstanding_requesters['block'] = {}
     result = {}
     num_requests = 0
+    new_indicators = []
+
     try:
         if int(environ['REQUEST_PER_MINUTE_LIMIT']) < 0 and int(environ['ERROR_PER_MINUTE_LIMIT']) < 0:
             return outstanding_requesters, num_requests
@@ -93,8 +100,11 @@ def get_outstanding_requesters(bucket_name, key_name):
                     elif environ['LOG_TYPE'] == 'alb':
                         line_data = line.split(LINE_FORMAT_ALB['delimiter'])
                         request_key = line_data[LINE_FORMAT_ALB['timestamp']].rsplit(':', 1)[0]
-                        request_key += '-' + line_data[LINE_FORMAT_ALB['source_ip']].split(':')[0]
+                        src_ip = '-' + line_data[LINE_FORMAT_ALB['source_ip']].split(':')[0]
+                        request_key += src_ip
                         return_code_index = LINE_FORMAT_ALB['code']
+                        request_index = LINE_FORMAT_ALB['request']
+ #                       useragent_index = LINE_FORMAT_ALB['user_agent']
                     else:
                         return outstanding_requesters, num_requests
 
@@ -103,13 +113,29 @@ def get_outstanding_requesters(bucket_name, key_name):
                     else:
                         result[request_key] = [1,0]
 
-                    if line_data[return_code_index] in BLOCK_ERROR_CODES:
+                    status_code = line_data[return_code_index] 
+                    if status_code in BLOCK_ERROR_CODES:
                         result[request_key][ERROR_COUNTER_INDEX] += 1
+
+                    if status_code in SHARE_ERROR_CODES:   
+                        url = line_data[request_index]
+                        print("BLOCKED line : %s"%line)
+                    
+                        url_parsed = urlsplit(url)
+                        path = url_parsed.path
+        
+                        print("BLOCKED ip and path : %s :: %s",src_ip,path)
+                        #useragent = line_data[useragent_index]   # Consider splitting by quotes instead
+                        #print ("BLOCKED useragent : %s"%useragent)
+
+                        # exclude if regex matches favicon
+
+                        new_indicators.append({ 'indicator': src_ip, 'type': 'IPv4' })
 
                     num_requests += 1
 
-                except Exception, e:
-                    print ("[get_outstanding_requesters] \t\tError to process line: %s"%line)
+                except Exception as e:
+                    print ("[get_outstanding_requesters] \t\tException %s when processing line: %s",e,line)   #text of Exception should be logged
 
         #--------------------------------------------------------------------------------------------------------------
         print("[get_outstanding_requesters] \tKeep only outstanding requesters")
@@ -133,9 +159,24 @@ def get_outstanding_requesters(bucket_name, key_name):
 
     except Exception, e:
         print("[get_outstanding_requesters] \tError to read input file")
+    
+    if new_indicators:
+        share_indicator(new_indicators)
 
     print("[get_outstanding_requesters] End")
     return outstanding_requesters, num_requests
+
+def share_indicator(new_indicators):
+    print 'new_indicators=%s' % ', '.join(map(str,new_indicators))
+    from OTXv2 import OTXv2
+    API_KEY = '18b66194ecc788f16cc0bb7e28d44c3d641dcbb51d28879d057c935505037136'
+    OTX_SERVER = 'https://otx.alienvault.com/'
+    otx = OTXv2(API_KEY, server=OTX_SERVER)
+    pulse_id = '59f64fb7e89b7004df75a9cc'
+    body = { 'indicators': {'add': new_indicators, 'edit': []}}
+    print 'Updating indicators'
+    response = otx.edit_pulse(pulse_id, body)
+    print 'update pulse response: ' + str(response)
 
 def merge_current_blocked_requesters(key_name, outstanding_requesters):
     print("[merge_current_blocked_requesters] Start")
