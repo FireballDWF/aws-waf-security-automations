@@ -100,8 +100,8 @@ def get_outstanding_requesters(bucket_name, key_name):
                     elif environ['LOG_TYPE'] == 'alb':
                         line_data = line.split(LINE_FORMAT_ALB['delimiter'])
                         request_key = line_data[LINE_FORMAT_ALB['timestamp']].rsplit(':', 1)[0]
-                        src_ip = '-' + line_data[LINE_FORMAT_ALB['source_ip']].split(':')[0]
-                        request_key += src_ip
+                        src_ip = line_data[LINE_FORMAT_ALB['source_ip']].split(':')[0]
+                        request_key += '-' + src_ip
                         return_code_index = LINE_FORMAT_ALB['code']
                         request_index = LINE_FORMAT_ALB['request']
  #                       useragent_index = LINE_FORMAT_ALB['user_agent']
@@ -124,7 +124,8 @@ def get_outstanding_requesters(bucket_name, key_name):
                         url_parsed = urlsplit(url)
                         path = url_parsed.path
         
-                        print("BLOCKED ip and path : %s :: %s",src_ip,path)
+                        print("BLOCKED   ip: %s"%src_ip)
+                        print("BLOCKED path: %s"%path)
                         #useragent = line_data[useragent_index]   # Consider splitting by quotes instead
                         #print ("BLOCKED useragent : %s"%useragent)
 
@@ -167,6 +168,7 @@ def get_outstanding_requesters(bucket_name, key_name):
     return outstanding_requesters, num_requests
 
 def share_indicator(new_indicators):
+    # TODO: Remove dups from new_indicators and from existing pulse
     print 'new_indicators=%s' % ', '.join(map(str,new_indicators))
     from OTXv2 import OTXv2
     API_KEY = '18b66194ecc788f16cc0bb7e28d44c3d641dcbb51d28879d057c935505037136'
