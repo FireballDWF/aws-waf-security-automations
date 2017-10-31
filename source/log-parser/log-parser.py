@@ -21,8 +21,11 @@ from urllib2 import Request
 from urllib2 import urlopen
 from urlparse import urlsplit
 
+import re
 
 print("Loading function")
+
+path_exclude_pattern = re.compile(environ['PATHEXCLUDEREGEX']) 
 
 #======================================================================================================================
 # Constants
@@ -68,7 +71,7 @@ def get_outstanding_requesters(bucket_name, key_name):
     outstanding_requesters['block'] = {}
     result = {}
     num_requests = 0
-    new_indicators = []
+    new_indicators = set([])
 
     try:
         if int(environ['REQUEST_PER_MINUTE_LIMIT']) < 0 and int(environ['ERROR_PER_MINUTE_LIMIT']) < 0:
@@ -119,19 +122,23 @@ def get_outstanding_requesters(bucket_name, key_name):
 
                     if status_code in SHARE_ERROR_CODES:   
                         url = line_data[request_index]
-                        print("BLOCKED line : %s"%line)
+                        # print("BLOCKED line : %s"%line)
                     
                         url_parsed = urlsplit(url)
                         path = url_parsed.path
         
-                        print("BLOCKED   ip: %s"%src_ip)
-                        print("BLOCKED path: %s"%path)
+
                         #useragent = line_data[useragent_index]   # Consider splitting by quotes instead
                         #print ("BLOCKED useragent : %s"%useragent)
 
-                        # exclude if regex matches favicon
+                        # exclude if regex matches favicon.ico robots.txt
 
-                        new_indicators.append({ 'indicator': src_ip, 'type': 'IPv4' })
+                        if not path_exclude_pattern.match(path):
+                            new_indicators.add(src_ip)   # one pulse for 404's, one for 400's
+                            print("add BLOCKED   status_code={}  ip={}   path={}  ".format(status_code,src_ip, path))
+                        else:
+                            print("skipped BLOCKED   status_code={}  ip={}   path={}  ".format(status_code,src_ip, path))
+
 
                     num_requests += 1
 
@@ -167,16 +174,25 @@ def get_outstanding_requesters(bucket_name, key_name):
     print("[get_outstanding_requesters] End")
     return outstanding_requesters, num_requests
 
-def share_indicator(new_indicators):
+def share_indicator(new_indicators_set):
     # TODO: Remove dups from new_indicators and from existing pulse
-    print 'new_indicators=%s' % ', '.join(map(str,new_indicators))
+
+    indicator_title = ''
+    indicator_description = ''
+    import IndicatorTypes
+    indicator_list = []
+    for indicator in new_indicators_set:
+        indicator_list.append({'indicator': indicator, 'type': IndicatorTypes.IPv4.name, 'title': indicator_title, 'description': indicator_description})
+    print 'new_indicators=%s' % ', '.join(map(str,indicator_list))
+
     from OTXv2 import OTXv2
     API_KEY = '18b66194ecc788f16cc0bb7e28d44c3d641dcbb51d28879d057c935505037136'
     OTX_SERVER = 'https://otx.alienvault.com/'
     otx = OTXv2(API_KEY, server=OTX_SERVER)
     pulse_id = '59f64fb7e89b7004df75a9cc'
-    body = { 'indicators': {'add': new_indicators, 'edit': []}}
-    print 'Updating indicators'
+
+    body = { 'indicators': {'add': indicator_list, 'edit': []}}
+#    print 'Updating indicators'
     response = otx.edit_pulse(pulse_id, body)
     print 'update pulse response: ' + str(response)
 
