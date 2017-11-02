@@ -182,14 +182,14 @@ def share_indicator(new_indicators_set):
     import IndicatorTypes
     indicator_list = []
     for indicator in new_indicators_set:
-        indicator_list.append({'indicator': indicator, 'type': IndicatorTypes.IPv4.name, 'title': indicator_title, 'description': indicator_description})
+        indicator_list.append({'indicator': indicator, 'type': IndicatorTypes.IPv4.name, 'role': 'scanning_host', 'title': indicator_title, 'description': indicator_description})
     print 'new_indicators=%s' % ', '.join(map(str,indicator_list))
 
     from OTXv2 import OTXv2
     API_KEY = '18b66194ecc788f16cc0bb7e28d44c3d641dcbb51d28879d057c935505037136'
     OTX_SERVER = 'https://otx.alienvault.com/'
     otx = OTXv2(API_KEY, server=OTX_SERVER)
-    pulse_id = '59f64fb7e89b7004df75a9cc'
+    pulse_id = environ['PULSEID']
 
     body = { 'indicators': {'add': indicator_list, 'edit': []}}
 #    print 'Updating indicators'
